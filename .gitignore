@@ -1,0 +1,8 @@
+# Remove the insert files
+
+insert_orders.py
+insert_products.py
+
+# Remove all cache
+
+__pycache__/

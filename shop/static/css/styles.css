@@ -1,0 +1,232 @@
+/* Base styles */
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f5f7fa;
+}
+
+header {
+    background: linear-gradient(135deg, #2c3e50, #3498db);
+    color: #fff;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Navbar styles */
+nav {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+}
+
+nav ul li {
+    margin: 0 1.5rem;
+}
+
+nav ul li a {
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+nav ul li a:hover {
+    color: #ffdd57; /* Change to a hover color of your choice */
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    margin-bottom: 5rem;
+}
+
+/* Order Groups Styles */
+.order-group {
+    margin-bottom: 1.5rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.order-group-header {
+    background: #f8f9fa;
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+    user-select: none;
+}
+
+.order-group-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #2c3e50;
+}
+
+.order-count {
+    background: #e9ecef;
+    padding: 0.2rem 0.8rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    color: #495057;
+}
+
+/* Table Styles */
+.orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.orders-table th {
+    background: #f8f9fa;
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.orders-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.orders-table tr:last-child td {
+    border-bottom: none;
+}
+
+.orders-table tr:hover {
+    background: #f8f9fa;
+}
+
+/* Status Pills */
+.status-pill {
+    padding: 0.3rem 0.8rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.status-delivered {
+    background: #d3f9d8;
+    color: #2b8a3e;
+}
+
+.status-processing {
+    background: #fff3bf;
+    color: #994c00;
+}
+
+/* Prediction Section */
+.prediction-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    margin-top: 2rem;
+}
+
+/* Footer styles */
+footer {
+    background-color: #2c3e50;
+    color: white;
+    text-align: center;
+    padding: 1rem 0;
+    position: relative;
+    bottom: 0;
+    width: 100%;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .orders-table {
+        display: block;
+        overflow-x: auto;
+    }
+    
+    .order-group-header {
+        padding: 0.8rem;
+    }
+    
+    .orders-table th,
+    .orders-table td {
+        padding: 0.8rem;
+    }
+    
+    .status-pill {
+        padding: 0.2rem 0.5rem;
+    }
+}
+
+/* Login Form Styles */
+form {
+    background: white; /* White background for the form */
+    padding: 2rem; /* Add padding around the form */
+    border-radius: 8px; /* Round the corners of the form */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+    max-width: 400px; /* Max width for the form */
+    margin: 2rem auto; /* Center the form on the page */
+}
+
+h1 {
+    text-align: center; /* Center align the heading */
+    color: #2c3e50; /* Heading color */
+}
+
+label {
+    display: block; /* Block display for labels */
+    margin-bottom: 0.5rem; /* Space below labels */
+    font-weight: 600; /* Bold font for labels */
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%; /* Full width for inputs */
+    padding: 0.75rem; /* Padding inside inputs */
+    margin-bottom: 1rem; /* Space below inputs */
+    border: 1px solid #ced4da; /* Border for inputs */
+    border-radius: 4px; /* Slightly round edges of inputs */
+    font-size: 1rem; /* Font size for inputs */
+    transition: border-color 0.3s ease; /* Transition for border color */
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+    border-color: #3498db; /* Change border color on focus */
+    outline: none; /* Remove default outline */
+}
+
+button[type="submit"] {
+    background-color: #3498db; /* Button background color */
+    color: white; /* Text color for button */
+    border: none; /* Remove border */
+    padding: 0.75rem; /* Padding inside button */
+    border-radius: 4px; /* Round button corners */
+    cursor: pointer; /* Pointer cursor on hover */
+    font-size: 1rem; /* Font size for button */
+    width: 100%; /* Full width for button */
+    transition: background-color 0.3s ease; /* Transition for background color */
+}
+
+button[type="submit"]:hover {
+    background-color: #2980b9; /* Darker shade on hover */
+}
+
+p {
+    text-align: center; /* Center align error message */
+    margin-top: 1rem; /* Space above the error message */
+}

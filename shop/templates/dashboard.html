@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h1>Welcome, {{ user.username }}</h1>
+
+  <h2>Your Orders</h2>
+  
+  {% regroup orders by order_date|date:"F Y" as order_list %}
+  
+  {% for month in order_list %}
+    <div class="order-group">
+      <div class="order-group-header">
+        <h3 class="order-group-title">
+          {{ month.grouper }}
+          <span class="order-count">{{ month.list|length }} orders</span>
+        </h3>
+      </div>
+      
+      <div id="group-{{ forloop.counter }}" class="order-group-content">
+        <table class="orders-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Quantity</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in month.list %}
+              <tr>
+                <td>{{ order.product.name }}</td>
+                <td>{{ order.quantity }}</td>
+                <td>{{ order.order_date|date:"M d, Y" }}</td>
+                <td>
+                  <span class="status-pill status-{{ order.status|lower }}">
+                    {{ order.status }}
+                  </span>
+                </td>
+                <td>₹{{ order.total_price }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endfor %}
+
+  <h2>Next Predicted Order</h2>
+  <div class="prediction-section">
+    {% if predicted_product %}
+      <p>We predict you might order <strong>{{ predicted_product.name }}</strong> around <strong>{{ predicted_date }}</strong>.</p>
+    {% else %}
+      <p>No prediction available.</p>
+    {% endif %}
+  </div>
+{% endblock %}
