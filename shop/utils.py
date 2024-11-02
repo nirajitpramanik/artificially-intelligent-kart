@@ -6,15 +6,13 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from typing import Tuple, List, Optional
 import math
-from statistics import stdev, mean
+from statistics import stdev, mean, median
 from collections import defaultdict
 
 class OrderPredictor:
     def __init__(self, max_depth: int = 3, evaluation_window: int = 90):
         self.max_depth = max_depth
         self.evaluation_window = evaluation_window
-        self.alpha = float('-inf')
-        self.beta = float('inf')
         self.min_pattern_confidence = 0.3
         self.min_orders_for_pattern = 2  # Require at least 2 orders to establish a pattern
 
@@ -42,25 +40,41 @@ class OrderPredictor:
         return quantity_trend * (1 + quantity_boost), quantity_consistency
 
     def analyze_interval_patterns(self, orders: List[Order]) -> Tuple[float, timedelta, float]:
-        """Analyze time intervals between orders."""
+        """Analyze time intervals between orders, handling cases with a single interval."""
         if not orders or len(orders) < self.min_orders_for_pattern:
-            return 0.0, timedelta(days=30), 0.0
-            
-        intervals = []
-        for i in range(len(orders) - 1):
-            interval = (orders[i + 1].order_date - orders[i].order_date).days
-            intervals.append(interval)
-            
+            return 0.0, timedelta(days=30), 0.0  # Default to 30 days if not enough data
+
+        intervals = [
+            (orders[i + 1].order_date - orders[i].order_date).days
+            for i in range(len(orders) - 1)
+        ]
+
+        # Initialize defaults for consistency
+        interval_mean = mean(intervals) if intervals else 0.0
+        predicted_interval = timedelta(days=30)  # Default to 30 days
+        interval_consistency = 1.0 if len(intervals) == 1 else 0.0  # Default consistency
+
+        # Calculate interval consistency and predicted interval
         try:
-            interval_std = stdev(intervals)
-            interval_mean = mean(intervals)
-            interval_consistency = 1.0 / (1.0 + (interval_std / interval_mean))
-            predicted_interval = timedelta(days=interval_mean)
+            if len(intervals) > 1:
+                interval_std = stdev(intervals)
+                interval_consistency = 1.0 / (1.0 + (interval_std / interval_mean))
+
+                # Use average interval as predicted interval if consistency is high enough
+                if interval_consistency > 0.5:  # Adjust threshold if needed
+                    predicted_interval = timedelta(days=interval_mean)
+                else:
+                    predicted_interval = timedelta(days=median(intervals))
+            else:
+                # Only one interval, assume consistent interval with the single value
+                predicted_interval = timedelta(days=interval_mean)
+
         except:
+            # Fall back to 30-day interval if calculations fail
             interval_consistency = 0.0
-            predicted_interval = timedelta(days=30)
-            
-        return interval_consistency, predicted_interval, mean(intervals) if intervals else 0.0
+
+        return interval_consistency, predicted_interval, interval_mean
+
 
     def calculate_volume_score(self, quantities: List[int]) -> float:
         """Calculate score based on order volumes."""
