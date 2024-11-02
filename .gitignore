@@ -6,3 +6,10 @@ insert_products.py
 # Remove all cache
 
 __pycache__/
+
+# Ignore vercel files until finalised
+
+node_modules/
+vercel.json
+package.json
+yarn.lock
