@@ -12,21 +12,17 @@ from datetime import date
 
 @login_required
 def dashboard(request):
-    # Fetch orders for the logged-in user
     user = request.user
     orders = Order.objects.filter(user=user).order_by('-order_date')
 
-    # Calculate total price for each order and determine the status
     for order in orders:
         order.total_price = order.product.price * order.quantity 
 
-        # Determine status based on the order date
         if order.order_date.date() <= date.today():  
             order.status = "Fulfilled"
         else:
             order.status = "Processing"
 
-    # Get prediction for the next order
     predicted_product, predicted_date = predict_next_order(user)
 
     return render(request, 'dashboard.html', {
