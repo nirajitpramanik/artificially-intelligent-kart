@@ -13,3 +13,7 @@ node_modules/
 vercel.json
 package.json
 yarn.lock
+
+# Ignore migrations folder
+
+migrations/
