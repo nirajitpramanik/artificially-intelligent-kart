@@ -17,3 +17,7 @@ yarn.lock
 # Ignore migrations folder
 
 migrations/
+
+# environment files
+
+.env
