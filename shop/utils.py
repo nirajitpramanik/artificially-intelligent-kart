@@ -10,7 +10,11 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, optimizers
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import joblib
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 
 from shop.models import Product, Order
 
@@ -22,13 +26,13 @@ class OrderPredictorDNN:
         self.model_dir.mkdir(exist_ok=True)
         
         self.model_path = self.model_dir / 'order_predictor_dnn.h5'
-        self.scaler_path = self.model_dir / 'feature_scaler.pkl'  
+        self.scaler_path = self.model_dir / 'feature_scaler.pkl'
         
         self.model = self._load_or_create_model()
         self.scaler = self._load_or_create_scaler()
         
         self.batch_size = 32
-        self.epochs = 50
+        self.epochs = 750
         
     def _create_dnn_model(self, input_dim):
         """Create a new DNN model with the specified architecture."""
@@ -59,9 +63,7 @@ class OrderPredictorDNN:
         try:
             if self.model_path.exists():
                 logger.info("Loading existing DNN model...")
-                return load_model(self.model_path, custom_objects={
-                    'loss': 'mean_squared_error'
-                })
+                return load_model(self.model_path, custom_objects={'loss': 'mean_squared_error'})
             else:
                 logger.info("Creating new DNN model...")
                 return None
@@ -72,7 +74,6 @@ class OrderPredictorDNN:
     def _load_or_create_scaler(self) -> StandardScaler:
         """Load existing scaler or create a new one."""
         try:
-            import joblib  # Add joblib import
             if self.scaler_path.exists():
                 logger.info("Loading existing scaler...")
                 return joblib.load(self.scaler_path)
@@ -90,7 +91,6 @@ class OrderPredictorDNN:
     def save_model(self):
         """Save the trained model and scaler."""
         try:
-            import joblib  
             if self.model is not None:
                 self.model.save(self.model_path)
             if self.scaler is not None:
@@ -103,11 +103,7 @@ class OrderPredictorDNN:
         """Extract relevant features for prediction."""
         try:
             reference_date = reference_date or timezone.now()
-            
-            all_orders = list(user.order_set.all()
-                            .select_related('product')
-                            .order_by('order_date'))
-            
+            all_orders = list(user.order_set.all().select_related('product').order_by('order_date'))
             product_orders = [o for o in all_orders if o.product_id == product.id]
             
             last_5_intervals = []
@@ -115,8 +111,7 @@ class OrderPredictorDNN:
             
             if len(product_orders) >= 2:
                 for i in range(min(5, len(product_orders) - 1)):
-                    interval = (product_orders[-(i+1)].order_date - 
-                              product_orders[-(i+2)].order_date).days
+                    interval = (product_orders[-(i+1)].order_date - product_orders[-(i+2)].order_date).days
                     last_5_intervals.append(interval)
                     last_5_quantities.append(product_orders[-(i+1)].quantity)
             
@@ -186,7 +181,7 @@ class OrderPredictorDNN:
             raise
             
     def update_model(self, user):
-        """Update the DNN model with new training data."""
+        """Update the DNN model with new training data and calculate performance metrics."""
         try:
             X_train = []
             y_train = []
@@ -225,17 +220,33 @@ class OrderPredictorDNN:
                     restore_best_weights=True
                 )
                 
-                self.model.fit(
+                history = self.model.fit(
                     X_train_scaled, y_train,
                     epochs=self.epochs,
                     batch_size=self.batch_size,
                     validation_split=0.2,
-                    callbacks=[early_stopping],
+                    #callbacks=[early_stopping],
                     verbose=0
                 )
+
+                plt.plot(history.history['loss'], label='Train Loss')
+                plt.plot(history.history['val_loss'], label='Validation Loss')
+                plt.xlabel('Epochs')
+                plt.ylabel('Loss')
+                plt.legend()
+                plt.show()
                 
                 self.save_model()
-                logger.info("DNN model updated successfully")
+                print("DNN model updated successfully")
+
+                # Calculate performance metrics
+                y_pred = self.model.predict(X_train_scaled, verbose=0).flatten()
+                mae = mean_absolute_error(y_train, y_pred)
+                mse = mean_squared_error(y_train, y_pred)
+                rmse = np.sqrt(mse)
+                r2 = r2_score(y_train, y_pred)
+
+                print(f"Training Metrics - MAE: {mae}, MSE: {mse}, RMSE: {rmse}, R^2: {r2}")
             
         except Exception as e:
             logger.error(f"Error updating model: {str(e)}")
@@ -255,31 +266,29 @@ class OrderPredictorDNN:
                 return None, None
             
             best_product = None
-            shortest_prediction = float('inf')
+            min_days = float('inf')
             
-            for product_data in frequent_products:
-                product = Product.objects.get(id=product_data['product'])
+            for product_info in frequent_products:
+                product = Product.objects.get(id=product_info['product'])
                 features = self.extract_features(user, product)
                 
-                if self.scaler.n_samples_seen_ > 0:
+                if self.scaler and self.model:
                     features_scaled = self.scaler.transform(features)
-                    
-                    if self.model is not None:
-                        days_prediction = float(self.model.predict(features_scaled, verbose=0)[0][0])
-                        
-                        if days_prediction < shortest_prediction:
-                            shortest_prediction = days_prediction
-                            best_product = product
+                    days_until_next = self.model.predict(features_scaled, verbose=0)[0][0]
+                    if days_until_next < min_days:
+                        min_days = days_until_next
+                        best_product = product
             
-            if best_product and shortest_prediction < float('inf'):
-                predicted_date = timezone.now() + timedelta(days=max(1, int(shortest_prediction)))
-                return best_product, predicted_date
+            if best_product is None:
+                return None, None
             
-            return None, None
-            
+            next_order_date = timezone.now() + timedelta(days=int(min_days))
+            return best_product, next_order_date
+        
         except Exception as e:
             logger.error(f"Error predicting next order: {str(e)}")
-            return None, None 
+            return None, None
+
 
 def predict_next_order(user) -> Tuple[Optional[Product], Optional[timezone.datetime]]:
     """Wrapper function to predict next order."""
