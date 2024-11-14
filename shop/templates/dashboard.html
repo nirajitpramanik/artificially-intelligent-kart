@@ -1,58 +1,108 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
 
 {% block content %}
-  <h1>Welcome, {{ user.username }}</h1>
-
-  <h2>Your Orders</h2>
-  
-  {% regroup orders by order_date|date:"F Y" as order_list %}
-  
-  {% for month in order_list %}
-    <div class="order-group">
-      <div class="order-group-header">
-        <h3 class="order-group-title">
-          {{ month.grouper }}
-          <span class="order-count">{{ month.list|length }} orders</span>
-        </h3>
-      </div>
-      
-      <div id="group-{{ forloop.counter }}" class="order-group-content">
-        <table class="orders-table">
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Quantity</th>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for order in month.list %}
-              <tr>
-                <td>{{ order.product.name }}</td>
-                <td>{{ order.quantity }}</td>
-                <td>{{ order.order_date|date:"M d, Y" }}</td>
-                <td>
-                  <span class="status-pill status-{{ order.status|lower }}">
-                    {{ order.status }}
-                  </span>
-                </td>
-                <td>₹{{ order.total_price }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  {% endfor %}
-
-  <h2>Next Predicted Order</h2>
-  <div class="prediction-section">
-    {% if predicted_product %}
-      <p>We predict you might order <strong>{{ predicted_product.name }}</strong> around <strong>{{ predicted_date }}</strong>.</p>
+<div class="container mx-auto p-6">
+    {% if error %}
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
+            <strong class="font-bold">Error!</strong>
+            <span class="block sm:inline">An error occurred while loading your dashboard. Please try again later.</span>
+        </div>
     {% else %}
-      <p>No prediction available.</p>
+        <div class="grid md:grid-cols-2 gap-6 mb-6">
+            {% if prediction_data %}
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-800">Next Predicted Order</h3>
+                    <table class="w-full">
+                        <tbody>
+                            <tr class="border-b">
+                                <td class="py-2 text-gray-600">Product:</td>
+                                <td class="py-2 font-medium text-gray-800">{{ prediction_data.product.name }}</td>
+                            </tr>
+                            <tr class="border-b">
+                                <td class="py-2 text-gray-600">Expected Date:</td>
+                                <td class="py-2 font-medium text-gray-800">{{ prediction_data.date|date:"F d, Y" }}</td>
+                            </tr>
+                            <tr class="border-b">
+                                <td class="py-2 text-gray-600">Confidence:</td>
+                                <td class="py-2 font-medium text-gray-800">{{ prediction_data.confidence }}</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-gray-600">Price:</td>
+                                <td class="py-2 font-medium text-gray-800">${{ prediction_data.previous_price }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">Your Order Statistics</h3>
+                <table class="w-full">
+                    <tbody>
+                        <tr class="border-b">
+                            <td class="py-2 text-gray-600">Total Orders:</td>
+                            <td class="py-2 font-medium text-gray-800">{{ statistics.total_orders }}</td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="py-2 text-gray-600">Total Spent:</td>
+                            <td class="py-2 font-medium text-gray-800">${{ statistics.total_spent|floatformat:2 }}</td>
+                        </tr>
+                        <tr>
+                            <td class="py-2 text-gray-600">Orders in Last 30 Days:</td>
+                            <td class="py-2 font-medium text-gray-800">{{ statistics.recent_orders }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800">Recent Orders</h3>
+            {% if orders %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full table-auto">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for order in orders %}
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        {{ order.product.name }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ order.quantity }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        ${{ order.total_price|floatformat:2 }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                            {% if order.status == 'Delivered' %}bg-green-100 text-green-800
+                                            {% elif order.status == 'Processing' %}bg-yellow-100 text-yellow-800
+                                            {% elif order.status == 'Shipped' %}bg-blue-100 text-blue-800
+                                            {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                            {{ order.status }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ order.order_date|date:"F d, Y" }}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-gray-500 text-center py-4">No orders found.</p>
+            {% endif %}
+        </div>
     {% endif %}
-  </div>
+</div>
 {% endblock %}

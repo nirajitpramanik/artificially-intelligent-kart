@@ -1,174 +1,291 @@
-import datetime
-from .models import Order, Product
-from django.db.models import Count, Avg
+from django.db import models
+from django.db.models import Avg, Count, F, Sum
 from django.utils import timezone
 from datetime import timedelta
-from django.contrib.auth.models import User
-from typing import Tuple, List, Optional
-import math
-from statistics import stdev, mean, median
-from collections import defaultdict
+import numpy as np
+from typing import Tuple, Optional
+import logging
+import os
+import tensorflow as tf
+from tensorflow.keras import layers, models, optimizers
+from tensorflow.keras.models import load_model
+from sklearn.preprocessing import StandardScaler
+from pathlib import Path
 
-class OrderPredictor:
-    def __init__(self, max_depth: int = 3, evaluation_window: int = 90):
-        self.max_depth = max_depth
-        self.evaluation_window = evaluation_window
-        self.min_pattern_confidence = 0.3
-        self.min_orders_for_pattern = 2  
+from shop.models import Product, Order
 
-    def analyze_quantity_patterns(self, orders: List[Order]) -> Tuple[float, float]:
-        """Analyze quantity patterns and trends."""
-        if not orders or len(orders) < self.min_orders_for_pattern:
-            return 0.0, 0.0
+logger = logging.getLogger(__name__)
+
+class OrderPredictorDNN:
+    def __init__(self, model_dir='ml_models'):
+        self.model_dir = Path(model_dir)
+        self.model_dir.mkdir(exist_ok=True)
         
-        quantities = [order.quantity for order in orders]
+        self.model_path = self.model_dir / 'order_predictor_dnn.h5'
+        self.scaler_path = self.model_dir / 'feature_scaler.pkl'  
         
-        quantity_trend = (quantities[-1] - quantities[0]) / len(quantities)
+        self.model = self._load_or_create_model()
+        self.scaler = self._load_or_create_scaler()
         
-        try:
-            quantity_std = stdev(quantities)
-            quantity_mean = mean(quantities)
-            quantity_consistency = 1.0 / (1.0 + (quantity_std / quantity_mean))
-        except:
-            quantity_consistency = 0.0
-            
-        quantity_boost = math.log10(max(quantities) + 1) / 2
+        self.batch_size = 32
+        self.epochs = 50
         
-        return quantity_trend * (1 + quantity_boost), quantity_consistency
-
-    def analyze_interval_patterns(self, orders: List[Order]) -> Tuple[float, timedelta, float]:
-        """Analyze time intervals between orders, handling cases with a single interval."""
-        if not orders or len(orders) < self.min_orders_for_pattern:
-            return 0.0, timedelta(days=30), 0.0  
-
-        intervals = [
-            (orders[i + 1].order_date - orders[i].order_date).days
-            for i in range(len(orders) - 1)
-        ]
-
-        interval_mean = mean(intervals) if intervals else 0.0
-        predicted_interval = timedelta(days=30)  # Default to 30 days
-        interval_consistency = 1.0 if len(intervals) == 1 else 0.0 
-
-        try:
-            if len(intervals) > 1:
-                interval_std = stdev(intervals)
-                interval_consistency = 1.0 / (1.0 + (interval_std / interval_mean))
-
-                if interval_consistency > 0.5: 
-                    predicted_interval = timedelta(days=interval_mean)
-                else:
-                    predicted_interval = timedelta(days=median(intervals))
-            else:
-                predicted_interval = timedelta(days=interval_mean)
-
-        except:
-            interval_consistency = 0.0
-
-        return interval_consistency, predicted_interval, interval_mean
-
-
-    def calculate_volume_score(self, quantities: List[int]) -> float:
-        """Calculate score based on order volumes."""
-        if not quantities or len(quantities) < self.min_orders_for_pattern:
-            return 0.0
-            
-        total_volume = sum(quantities)
-        avg_volume = total_volume / len(quantities)
-        recent_volume = quantities[-1]
+    def _create_dnn_model(self, input_dim):
+        """Create a new DNN model with the specified architecture."""
+        model = models.Sequential([
+            layers.Input(shape=(input_dim,)),
+            layers.Dense(64, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.3),
+            layers.Dense(32, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.2),
+            layers.Dense(16, activation='relu'),
+            layers.BatchNormalization(),
+            layers.Dropout(0.1),
+            layers.Dense(1, activation='linear')
+        ])
         
-        volume_trend = recent_volume / avg_volume if avg_volume > 0 else 1.0
-        volume_magnitude = math.log10(total_volume + 1) / math.log10(100) 
-        
-        return min(100.0, (volume_trend * 50.0 + volume_magnitude * 50.0))
-
-    def calculate_pattern_strength(self, orders: List[Order]) -> float:
-        """Calculate the strength of the ordering pattern."""
-        if len(orders) < self.min_orders_for_pattern:
-            return 0.0
-            
-        intervals = []
-        quantities = []
-        for i in range(len(orders) - 1):
-            interval = (orders[i + 1].order_date - orders[i].order_date).days
-            intervals.append(interval)
-            quantities.append(orders[i].quantity)
-        quantities.append(orders[-1].quantity)
-        
-        try:
-            interval_consistency = 1.0 / (1.0 + stdev(intervals) / mean(intervals))
-            quantity_consistency = 1.0 / (1.0 + stdev(quantities) / mean(quantities))
-            return (interval_consistency + quantity_consistency) / 2
-        except:
-            return 0.0
-
-    def calculate_heuristic(self, product: Product, user: User, reference_date: datetime) -> Tuple[float, Optional[datetime.datetime]]:
-        """
-        Enhanced heuristic calculation with stronger emphasis on established patterns
-        and higher volumes
-        """
-        recent_period = timezone.now() - timedelta(days=self.evaluation_window)
-        orders = list(Order.objects.filter(
-            user=user,
-            product=product,
-            order_date__gte=recent_period
-        ).order_by('order_date'))
-        
-        if len(orders) < self.min_orders_for_pattern:
-            return 0.0, None
-            
-        quantity_trend, quantity_consistency = self.analyze_quantity_patterns(orders)
-        quantities = [order.quantity for order in orders]
-        volume_score = self.calculate_volume_score(quantities)
-        pattern_strength = self.calculate_pattern_strength(orders)
-        
-        interval_consistency, predicted_interval, avg_interval = self.analyze_interval_patterns(orders)
-        
-        last_order_date = orders[-1].order_date
-        predicted_date = last_order_date + predicted_interval
-        
-        weights = {
-            'volume': 0.35,      
-            'pattern': 0.30,     
-            'interval': 0.20,    
-            'quantity': 0.15     
-        }
-        
-        final_score = (
-            weights['volume'] * volume_score +
-            weights['pattern'] * (pattern_strength * 100) +
-            weights['interval'] * (interval_consistency * 100) +
-            weights['quantity'] * (quantity_consistency * 100)
+        model.compile(
+            optimizer=optimizers.Adam(learning_rate=0.001),
+            loss='mean_squared_error',
+            metrics=['mae']
         )
         
-        if len(orders) < self.min_orders_for_pattern:
-            final_score *= 0.1
-            
-        return final_score, predicted_date
+        return model
 
-    def predict_next_order(self, user: User) -> Tuple[Optional[Product], Optional[datetime.datetime]]:
-        """Generate prediction using the enhanced heuristic function."""
-        recent_period = timezone.now() - timedelta(days=self.evaluation_window)
-        products = Product.objects.filter(
-            order__user=user,
-            order__order_date__gte=recent_period
-        ).distinct()
-        
-        best_score = -1
-        best_product = None
-        best_date = None
-        
-        for product in products:
-            score, predicted_date = self.calculate_heuristic(product, user, timezone.now())
-            
-            if score > best_score:
-                best_score = score
-                best_product = product
-                best_date = predicted_date
-        
-        return best_product, best_date
+    def _load_or_create_model(self) -> tf.keras.Model:
+        """Load existing model or create a new one if not found."""
+        try:
+            if self.model_path.exists():
+                logger.info("Loading existing DNN model...")
+                return load_model(self.model_path, custom_objects={
+                    'loss': 'mean_squared_error'
+                })
+            else:
+                logger.info("Creating new DNN model...")
+                return None
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            return None
 
-def predict_next_order(user: User) -> Tuple[Optional[Product], Optional[datetime.datetime]]:
-    """Main prediction function that initializes and runs the prediction algorithm"""
-    predictor = OrderPredictor()
-    return predictor.predict_next_order(user)
+    def _load_or_create_scaler(self) -> StandardScaler:
+        """Load existing scaler or create a new one."""
+        try:
+            import joblib  # Add joblib import
+            if self.scaler_path.exists():
+                logger.info("Loading existing scaler...")
+                return joblib.load(self.scaler_path)
+            else:
+                logger.info("Creating new scaler...")
+                scaler = StandardScaler()
+                scaler.n_samples_seen_ = 0 
+                return scaler
+        except Exception as e:
+            logger.error(f"Error loading scaler: {str(e)}")
+            scaler = StandardScaler()
+            scaler.n_samples_seen_ = 0 
+            return scaler
+
+    def save_model(self):
+        """Save the trained model and scaler."""
+        try:
+            import joblib  
+            if self.model is not None:
+                self.model.save(self.model_path)
+            if self.scaler is not None:
+                joblib.dump(self.scaler, self.scaler_path)
+            logger.info("Model and scaler saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving model: {str(e)}")
+
+    def extract_features(self, user, product, reference_date=None) -> np.ndarray:
+        """Extract relevant features for prediction."""
+        try:
+            reference_date = reference_date or timezone.now()
+            
+            all_orders = list(user.order_set.all()
+                            .select_related('product')
+                            .order_by('order_date'))
+            
+            product_orders = [o for o in all_orders if o.product_id == product.id]
+            
+            last_5_intervals = []
+            last_5_quantities = []
+            
+            if len(product_orders) >= 2:
+                for i in range(min(5, len(product_orders) - 1)):
+                    interval = (product_orders[-(i+1)].order_date - 
+                              product_orders[-(i+2)].order_date).days
+                    last_5_intervals.append(interval)
+                    last_5_quantities.append(product_orders[-(i+1)].quantity)
+            
+            last_5_intervals = (last_5_intervals + [0] * 5)[:5]
+            last_5_quantities = (last_5_quantities + [0] * 5)[:5]
+            
+            total_orders = len(all_orders)
+            product_orders_count = len(product_orders)
+            
+            if product_orders:
+                first_order = product_orders[0].order_date
+                last_order = product_orders[-1].order_date
+                date_range = (last_order - first_order).days + 1
+                product_frequency = product_orders_count / max(1, date_range)
+                days_since_last = (reference_date - last_order).days
+                avg_interval = date_range / max(1, product_orders_count - 1)
+            else:
+                product_frequency = 0
+                days_since_last = 365
+                avg_interval = 0
+            
+            quantities = [o.quantity for o in product_orders]
+            values = [o.quantity * o.product.price for o in product_orders]
+            
+            avg_quantity = np.mean(quantities) if quantities else 0
+            std_quantity = np.std(quantities) if len(quantities) > 1 else 0
+            avg_value = np.mean(values) if values else 0
+            std_value = np.std(values) if len(values) > 1 else 0
+            
+            thirty_days_ago = reference_date - timedelta(days=30)
+            recent_orders = len([o for o in product_orders if o.order_date >= thirty_days_ago])
+            recent_frequency = recent_orders / 30.0
+            
+            temporal_features = [
+                float(reference_date.year),
+                float(reference_date.month),
+                float(reference_date.day),
+                float(reference_date.weekday()),
+                np.sin(2 * np.pi * reference_date.month / 12),
+                np.cos(2 * np.pi * reference_date.month / 12),
+                np.sin(2 * np.pi * reference_date.weekday() / 7),  
+                np.cos(2 * np.pi * reference_date.weekday() / 7)
+            ]
+            
+            features = np.array(
+                last_5_intervals +  
+                last_5_quantities +  
+                [
+                    float(product_orders_count),
+                    float(total_orders),
+                    product_frequency,
+                    days_since_last,
+                    avg_interval,
+                    avg_quantity,
+                    std_quantity,
+                    float(avg_value),
+                    float(std_value),
+                    recent_frequency
+                ] +
+                temporal_features
+            )
+            
+            return features.reshape(1, -1)
+            
+        except Exception as e:
+            logger.error(f"Error extracting features: {str(e)}")
+            raise
+            
+    def update_model(self, user):
+        """Update the DNN model with new training data."""
+        try:
+            X_train = []
+            y_train = []
+            
+            orders = list(user.order_set.all().order_by('order_date'))
+            
+            for i in range(len(orders) - 1):
+                current_order = orders[i]
+                next_order = orders[i + 1]
+                
+                features = self.extract_features(
+                    user, 
+                    current_order.product, 
+                    reference_date=current_order.order_date
+                )
+                X_train.append(features[0])
+                
+                days_until_next = (next_order.order_date - current_order.order_date).days
+                y_train.append(min(days_until_next, 90))
+            
+            if X_train and y_train:
+                X_train = np.array(X_train)
+                y_train = np.array(y_train)
+                
+                if self.model is None:
+                    input_dim = X_train.shape[1]
+                    self.model = self._create_dnn_model(input_dim)
+                
+                if self.scaler.n_samples_seen_ == 0:
+                    self.scaler.fit(X_train)
+                X_train_scaled = self.scaler.transform(X_train)
+                
+                early_stopping = tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=5,
+                    restore_best_weights=True
+                )
+                
+                self.model.fit(
+                    X_train_scaled, y_train,
+                    epochs=self.epochs,
+                    batch_size=self.batch_size,
+                    validation_split=0.2,
+                    callbacks=[early_stopping],
+                    verbose=0
+                )
+                
+                self.save_model()
+                logger.info("DNN model updated successfully")
+            
+        except Exception as e:
+            logger.error(f"Error updating model: {str(e)}")
+            raise
+
+    def predict_next_order(self, user) -> Tuple[Optional[Product], Optional[timezone.datetime]]:
+        """Predict the next order using the DNN model."""
+        try:
+            if user.order_set.count() > 1:
+                self.update_model(user)
+            
+            frequent_products = (user.order_set.values('product')
+                               .annotate(order_count=Count('id'))
+                               .order_by('-order_count')[:5])
+            
+            if not frequent_products:
+                return None, None
+            
+            best_product = None
+            shortest_prediction = float('inf')
+            
+            for product_data in frequent_products:
+                product = Product.objects.get(id=product_data['product'])
+                features = self.extract_features(user, product)
+                
+                if self.scaler.n_samples_seen_ > 0:
+                    features_scaled = self.scaler.transform(features)
+                    
+                    if self.model is not None:
+                        days_prediction = float(self.model.predict(features_scaled, verbose=0)[0][0])
+                        
+                        if days_prediction < shortest_prediction:
+                            shortest_prediction = days_prediction
+                            best_product = product
+            
+            if best_product and shortest_prediction < float('inf'):
+                predicted_date = timezone.now() + timedelta(days=max(1, int(shortest_prediction)))
+                return best_product, predicted_date
+            
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"Error predicting next order: {str(e)}")
+            return None, None 
+
+def predict_next_order(user) -> Tuple[Optional[Product], Optional[timezone.datetime]]:
+    """Wrapper function to predict next order."""
+    try:
+        predictor = OrderPredictorDNN()
+        return predictor.predict_next_order(user)
+    except Exception as e:
+        logger.error(f"Error predicting next order: {str(e)}")
+        return None, None
