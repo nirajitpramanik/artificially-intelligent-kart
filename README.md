@@ -9,3 +9,5 @@ The project works on combining AI approaches such as heuristic functions to reac
 ### Requirements
 
 This project is run using Python with the help of Django, with the data stored in a PostgreSQL database.
+
+To run this, you require setting up a Django project along with a PostgreSQL database. Then running the project will launch a localhost website.
